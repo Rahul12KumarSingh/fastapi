@@ -1,37 +1,59 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import Depends, FastAPI , Response , status
+from sqlalchemy.orm import Session
+
+from database import Base, engine, get_db
+import models
+import schemas
 
 app = FastAPI()
 
+Base.metadata.create_all(bind=engine)
 
-@app.get("/health-check")
-def health_check():
-    return { "statusCode" : 200 , "success" : "true"}
+
+@app.post("/blog")
+def create(blog: schemas.Blog, db: Session = Depends(get_db)):
+    new_blog = models.Blog(title=blog.title, body=blog.body)
+    db.add(new_blog)
+    db.commit()
+    db.refresh(new_blog)
+
+    return {
+        "statusCode": 200,
+        "success": True,
+        "blog": {
+            "id": new_blog.id,
+            "title": new_blog.title,
+            "body": new_blog.body,
+        },
+    }
 
 
 @app.get("/blog")
-def getBlogs(limit : int = 10 , published : bool = True):
-    return { "limit": limit , "published" : published , "blogs" : f"Blogs with limit {limit} and published {published}" }
+def get(db: Session = Depends(get_db)):
+    blogs = db.query(models.Blog).all()
+
+    return {
+        "statusCode": 200,
+        "success": True,
+        "blogs": [
+            {"id": blog.id, "title": blog.title, "body": blog.body}
+            for blog in blogs
+        ],
+    }
 
 
-@app.get("/blog/{blog_id}")
-def getBlog(blog_id: int):
-    return { "blog_id" : blog_id }
+@app.get("/blog/{id}" , status_code=200)
+def get_by_id(id: int, response: Response, db: Session = Depends(get_db)):
+    blog = db.query(models.Blog).filter(models.Blog.id == id).first()
 
+    if not blog:
+        response.status_code = status.HTTP_404_NOT_FOUND
 
-@app.get("/blog/{blog_id}/comments")
-def getComments(blog_id : int):
-    return { "blog_id" : blog_id , "comments" : ["comment1" , "comment2" , "comment3"] }
+        return { 
+            "message": "Blog not found",
+        }
 
-
-class  Blog(BaseModel):
-    title: str
-    content: str
-    published: bool
-
-@app.post("/blog")
-def createBlog(blog  : Blog):
-    return { "blog_details": blog , "message" : "Blog created successfully" }
-
-
-
+    return {
+        "success": True,
+        "blog": {"id": blog.id, "title": blog.title, "body": blog.body},
+    }
